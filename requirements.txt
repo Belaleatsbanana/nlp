@@ -8,6 +8,8 @@ bitsandbytes>=0.43.0
 
 # Dataset
 datasets>=2.19.0
+pandas>=2.0.0
+kagglehub>=0.2.0
 
 # Evaluation
 bert-score>=0.3.13

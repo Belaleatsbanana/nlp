@@ -1,5 +1,5 @@
 """
-eval.py — Evaluate the fine-tuned Qwen3 medical model.
+eval.py — Evaluate the fine-tuned Qwen2.5 medical model.
 
 Metrics:
   1. BERTScore (Precision / Recall / F1) using DeBERTa-xlarge-mnli backbone.
@@ -12,12 +12,11 @@ Metrics:
 import json
 import torch
 from tqdm import tqdm
-from datasets import load_dataset as hf_load_dataset
+import pandas as pd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
-    TextStreamer,
 )
 from peft import PeftModel
 from bert_score import score as bertscore
@@ -42,10 +41,9 @@ def load_eval_model():
         model_ref,
         quantization_config=bnb_config,
         device_map="auto",
-        trust_remote_code=True,
     )
     model = PeftModel.from_pretrained(base_model, config.ADAPTER_DIR)
-    tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -62,7 +60,6 @@ def generate_answer(model, tokenizer, question: str) -> str:
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=config.ENABLE_THINKING,
     )
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
@@ -119,18 +116,16 @@ def evaluate(num_samples: int = 100):
     print("[eval] Loading model…")
     model, tokenizer = load_eval_model()
 
-    print("[eval] Loading test set…")
-    raw = hf_load_dataset(
-        config.DATASET_NAME,
-        config.DATASET_CONFIG,
-        split=config.DATASET_TEST_SPLIT,
-        trust_remote_code=True,
-    )
+    print("[eval] Loading test set from CSV…")
+    from load_dataset import load_raw_df, df_to_dataset_dict
+    df  = load_raw_df()
+    dsd = df_to_dataset_dict(df)
+    raw = dsd[config.DATASET_TEST_SPLIT]
     if num_samples:
         raw = raw.select(range(min(num_samples, len(raw))))
 
-    questions  = raw["question"]
-    references = raw["answer"]
+    questions  = raw[config.DATASET_QUESTION_COL]
+    references = raw[config.DATASET_ANSWER_COL]
 
     predictions   = []
     med_acc_scores = []

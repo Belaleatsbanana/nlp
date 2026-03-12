@@ -1,5 +1,5 @@
 """
-infer.py — Run inference with the fine-tuned Qwen3 medical model.
+infer.py — Run inference with the fine-tuned Qwen2.5 medical model.
 
 Supports:
   - Single question (interactive CLI)
@@ -21,7 +21,7 @@ import config
 
 def load_model(use_adapter: bool = True):
     """
-    Load the quantised Qwen3 model.
+    Load the quantised Qwen2.5 model.
 
     Args:
         use_adapter: If True, load fine-tuned LoRA adapter (post-training).
@@ -39,16 +39,15 @@ def load_model(use_adapter: bool = True):
         model_ref,
         quantization_config=bnb_config,
         device_map="auto",
-        trust_remote_code=True,
     )
 
     if use_adapter:
         model = PeftModel.from_pretrained(base_model, config.ADAPTER_DIR)
-        tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR)
         print(f"[infer] Loaded fine-tuned adapter from {config.ADAPTER_DIR}")
     else:
         model = base_model
-        tokenizer = AutoTokenizer.from_pretrained(model_ref, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_ref)
         print(f"[infer] Loaded base model from {model_ref}")
 
     if tokenizer.pad_token is None:
@@ -64,7 +63,6 @@ def build_prompt(question: str, tokenizer: AutoTokenizer) -> str:
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=config.ENABLE_THINKING,
     )
 
 
@@ -119,7 +117,7 @@ def infer_batch(model, tokenizer, questions: list[str]) -> list[str]:
 
 def interactive_cli(model, tokenizer):
     """Simple REPL for manual testing."""
-    print("\nQwen3 Medical Assistant (type 'exit' to quit)\n")
+    print("\nQwen2.5 Medical Assistant (type 'exit' to quit)\n")
     while True:
         try:
             question = input("You: ").strip()
@@ -135,7 +133,7 @@ def interactive_cli(model, tokenizer):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Qwen3 Medical Inference")
+    parser = argparse.ArgumentParser(description="Qwen2.5 Medical Inference")
     parser.add_argument("--base",        action="store_true",
                         help="Use base model instead of fine-tuned adapter")
     parser.add_argument("--question",    type=str, default=None,

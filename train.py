@@ -1,5 +1,5 @@
 """
-train.py — Fine-tune Qwen3-1.7B on a medical QA dataset using QLoRA (4-bit + LoRA).
+train.py — Fine-tune Qwen2.5-1.5B-Instruct on a medical QA dataset using QLoRA (4-bit + LoRA).
 
 Precision Tweaks:
   - per_device_train_batch_size=1 with gradient_accumulation_steps=8 stabilises
@@ -39,11 +39,10 @@ def load_model_and_tokenizer():
         model_ref,
         quantization_config=bnb_config,
         device_map="auto",
-        trust_remote_code=True,
     )
     model.config.use_cache = False  # Required for gradient checkpointing
 
-    tokenizer = AutoTokenizer.from_pretrained(model_ref, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_ref)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 

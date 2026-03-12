@@ -1,5 +1,5 @@
 """
-config.py — Central configuration for Qwen3 medical fine-tuning pipeline.
+config.py — Central configuration for Qwen2.5 medical fine-tuning pipeline.
 
 Precision Tweaks applied:
   - per_device_train_batch_size lowered to 1 with gradient_accumulation_steps=8
@@ -11,18 +11,27 @@ Precision Tweaks applied:
 import torch
 
 # ── Model
-MODEL_ID = "Qwen/Qwen3-1.7B"          # HuggingFace hub ID (fallback)
+MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"   # HuggingFace hub ID (fallback)
 MODEL_PATH = None                      # Set to local path or Kaggle download path;
                                        # if None, MODEL_ID is used.
 OUTPUT_DIR = "./qwen-medical"
 ADAPTER_DIR = "./qwen-medical-adapter" # Where the LoRA weights are saved after training
 
-# ── Dataset─
-DATASET_NAME = "lavita/medical-qa-datasets"
-DATASET_CONFIG = "chatdoctor_healthcaremagic"  # subset with question/answer columns
-DATASET_SPLIT = "train"
-DATASET_TEST_SPLIT = "test"
-MAX_SAMPLES = None       # Set an int to cap dataset size during debugging
+# ── Dataset ────────────────────────────────────────────────────────────────────
+# MedQuAD downloaded directly from Kaggle via kagglehub → pandas DataFrame.
+KAGGLE_DATASET_HANDLE = "pythonafroz/medquad-medical-question-answer-for-ai-research"
+KAGGLE_CSV_FILENAME   = "medquad.csv"
+DATASET_SPLIT         = "train"
+DATASET_TEST_SPLIT    = "test"
+TEST_SIZE             = 0.1
+RANDOM_SEED           = 42
+MAX_SAMPLES           = None   # int to cap rows during debugging
+
+# Column names (MedQuAD schema)
+DATASET_QUESTION_COL  = "question"
+DATASET_ANSWER_COL    = "answer"
+DATASET_SOURCE_COL    = "source"
+DATASET_FOCUS_COL     = "focus_area"
 
 # ── 4-bit Quantisation
 BNB_LOAD_IN_4BIT         = True
@@ -62,7 +71,7 @@ TOP_P           = 0.8
 TOP_K           = 20
 MAX_NEW_TOKENS  = 2048
 NUM_BEAMS       = 1
-ENABLE_THINKING = True   # Qwen3 chain-of-thought flag
+ENABLE_THINKING = False  # Qwen2.5 does not support chain-of-thought thinking tokens
 
 # ── Evaluation ─────────────────────────────────────────────────────────────────
 EVAL_BATCH_SIZE       = 8
