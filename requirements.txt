@@ -1,0 +1,17 @@
+# Core model stack
+torch>=2.2.0
+transformers>=4.51.0
+accelerate>=0.29.0
+peft>=0.10.0
+trl>=0.8.6
+bitsandbytes>=0.43.0
+
+# Dataset
+datasets>=2.19.0
+
+# Evaluation
+bert-score>=0.3.13
+rouge-score>=0.1.2
+
+# Utilities
+tqdm>=4.66.0
