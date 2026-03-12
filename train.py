@@ -67,14 +67,15 @@ def build_training_args() -> TrainingArguments:
         gradient_accumulation_steps=config.GRADIENT_ACCUMULATION_STEPS,
         learning_rate=config.LEARNING_RATE,
         max_steps=config.MAX_STEPS,
-        fp16=config.FP16,
+        fp16=config.FP16,   # False — bfloat16 compute dtype is incompatible with fp16 scaler
+        bf16=config.BF16,   # True  — bfloat16 needs no grad scaler, avoids unscale_ error
         optim=config.OPTIM,
         report_to="none",
         logging_steps=config.LOGGING_STEPS,
         neftune_noise_alpha=config.NEFTUNE_NOISE_ALPHA,
         gradient_checkpointing=config.GRADIENT_CHECKPOINTING,
         save_steps=config.SAVE_STEPS,
-        warmup_ratio=config.WARMUP_RATIO,
+        warmup_steps=config.WARMUP_STEPS,  # replaces deprecated warmup_ratio
         save_total_limit=2,
         load_best_model_at_end=False,
     )

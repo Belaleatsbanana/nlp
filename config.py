@@ -56,13 +56,14 @@ TRAIN_BATCH_SIZE            = 1
 GRADIENT_ACCUMULATION_STEPS = 8
 LEARNING_RATE               = 2e-4
 MAX_STEPS                   = 300
-FP16                        = True
-OPTIM                       = "adamw_8bit"
+FP16                        = False  # Must be False when compute dtype is bfloat16
+BF16                        = True   # bfloat16 has wider exponent range; no grad scaler needed
+OPTIM                       = "paged_adamw_8bit"  # adamw_8bit can still trigger grad scaler with some accelerate versions
 LOGGING_STEPS               = 10
 NEFTUNE_NOISE_ALPHA         = 5
 GRADIENT_CHECKPOINTING      = True
 SAVE_STEPS                  = 100
-WARMUP_RATIO                = 0.03
+WARMUP_STEPS                = 9     # ~3% of MAX_STEPS (replaces deprecated warmup_ratio)
 
 # ── Inference / Generation ─────────────────────────────────────────────────────
 # Precision Tweak: temperature=0.3 reduces hallucination for factual medical Q&A.
