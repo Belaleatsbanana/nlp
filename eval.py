@@ -1,34 +1,65 @@
 """
 eval.py — Evaluate the fine-tuned Qwen2.5 medical model.
 
-Metrics:
-  1. BERTScore (Precision / Recall / F1) using DeBERTa-xlarge-mnli backbone.
-  2. Medical Accuracy Score — keyword-overlap heuristic against a set of
-     UpToDate®-inspired clinical guideline terms (see config.CLINICAL_GUIDELINE_KEYWORDS).
-     Acts as a lightweight proxy until a full clinical NLI model is integrated.
-  3. ROUGE-L for surface-level fluency reference.
+Now asks for adapter directory and output file at runtime.
 """
 
 import json
 import torch
 from tqdm import tqdm
-import pandas as pd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
 )
 from peft import PeftModel
-from bert_score import score as bertscore
 from rouge_score import rouge_scorer
 
 import config
+from load_dataset import load_raw_df, df_to_dataset_dict
+
+
+# ── BERTScore overflow patch ───────────────────────────────────────────────────
+# (unchanged, kept exactly as before)
+import transformers as _transformers
+
+_original_from_pretrained = _transformers.AutoTokenizer.from_pretrained.__func__
+
+@classmethod
+def _patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+    tokenizer = _original_from_pretrained(
+        cls, pretrained_model_name_or_path, *args, **kwargs
+    )
+    _BERTSCORE_MAX = 512
+    if getattr(tokenizer, "model_max_length", 0) > _BERTSCORE_MAX:
+        tokenizer.model_max_length = _BERTSCORE_MAX
+    return tokenizer
+
+_transformers.AutoTokenizer.from_pretrained = _patched_from_pretrained
+
+from bert_score import score as bertscore  # noqa: E402
+
+
+# ── Interactive input for paths ────────────────────────────────────────────────
+
+def get_paths():
+    print("\n--- Evaluation Paths ---")
+    default_adapter = config.ADAPTER_DIR
+    adapter = input(f"Adapter directory [default: {default_adapter}]: ").strip()
+    if not adapter:
+        adapter = default_adapter
+
+    default_output = config.EVAL_OUTPUT_FILE
+    output_file = input(f"Output JSON file [default: {default_output}]: ").strip()
+    if not output_file:
+        output_file = default_output
+
+    return adapter, output_file
 
 
 # ── Model loading ──────────────────────────────────────────────────────────────
 
-def load_eval_model():
-    """Load quantised base model with LoRA adapter merged for inference."""
+def load_eval_model(adapter_dir):
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=config.BNB_LOAD_IN_4BIT,
         bnb_4bit_quant_type=config.BNB_4BIT_QUANT_TYPE,
@@ -42,8 +73,9 @@ def load_eval_model():
         quantization_config=bnb_config,
         device_map="auto",
     )
-    model = PeftModel.from_pretrained(base_model, config.ADAPTER_DIR)
-    tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR)
+    model = PeftModel.from_pretrained(base_model, adapter_dir)
+    model.config.use_cache = True
+    tokenizer = AutoTokenizer.from_pretrained(adapter_dir)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -54,7 +86,6 @@ def load_eval_model():
 # ── Generation ─────────────────────────────────────────────────────────────────
 
 def generate_answer(model, tokenizer, question: str) -> str:
-    """Generate a model answer for a single question."""
     messages = [{"role": "user", "content": question}]
     text = tokenizer.apply_chat_template(
         messages,
@@ -67,14 +98,13 @@ def generate_answer(model, tokenizer, question: str) -> str:
         output_ids = model.generate(
             **inputs,
             max_new_tokens=config.MAX_NEW_TOKENS,
-            temperature=config.TEMPERATURE,   # Precision Tweak: 0.3 for factual adherence
+            temperature=config.TEMPERATURE,
             top_p=config.TOP_P,
             top_k=config.TOP_K,
             num_beams=config.NUM_BEAMS,
-            do_sample=True,
+            do_sample=(config.NUM_BEAMS == 1),
         )
 
-    # Decode only the newly generated tokens
     new_tokens = output_ids[0][inputs["input_ids"].shape[-1]:]
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
@@ -82,12 +112,6 @@ def generate_answer(model, tokenizer, question: str) -> str:
 # ── Medical accuracy heuristic ─────────────────────────────────────────────────
 
 def medical_accuracy_score(prediction: str, reference: str) -> float:
-    """
-    Keyword-overlap proxy for clinical guideline adherence.
-
-    Checks what fraction of UpToDate®-inspired clinical keywords present in the
-    *reference* answer also appear in the *prediction*. Returns a score in [0, 1].
-    """
     ref_lower  = reference.lower()
     pred_lower = prediction.lower()
 
@@ -95,7 +119,7 @@ def medical_accuracy_score(prediction: str, reference: str) -> float:
         kw for kw in config.CLINICAL_GUIDELINE_KEYWORDS if kw in ref_lower
     ]
     if not relevant_keywords:
-        return 1.0  # No clinical keywords in reference → not penalised
+        return 1.0
 
     matched = sum(1 for kw in relevant_keywords if kw in pred_lower)
     return matched / len(relevant_keywords)
@@ -107,27 +131,26 @@ def compute_rouge(predictions: list[str], references: list[str]) -> dict:
     scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     scores = [scorer.score(ref, pred)["rougeL"].fmeasure
               for pred, ref in zip(predictions, references)]
-    return {"rougeL_mean": sum(scores) / len(scores)}
+    return {"rougeL_mean": sum(scores) / len(scores) if scores else 0.0}
 
 
 # ── Main evaluation loop ───────────────────────────────────────────────────────
 
-def evaluate(num_samples: int = 100):
-    print("[eval] Loading model…")
-    model, tokenizer = load_eval_model()
+def evaluate(adapter_dir, output_file, num_samples: int = 100):
+    print(f"[eval] Loading model from {adapter_dir}…")
+    model, tokenizer = load_eval_model(adapter_dir)
 
     print("[eval] Loading test set from CSV…")
-    from load_dataset import load_raw_df, df_to_dataset_dict
     df  = load_raw_df()
     dsd = df_to_dataset_dict(df)
     raw = dsd[config.DATASET_TEST_SPLIT]
     if num_samples:
         raw = raw.select(range(min(num_samples, len(raw))))
 
-    questions  = raw[config.DATASET_QUESTION_COL]
-    references = raw[config.DATASET_ANSWER_COL]
+    questions  = list(raw[config.DATASET_QUESTION_COL])
+    references = list(raw[config.DATASET_ANSWER_COL])
 
-    predictions   = []
+    predictions    = []
     med_acc_scores = []
 
     print(f"[eval] Generating answers for {len(questions)} samples…")
@@ -170,12 +193,13 @@ def evaluate(num_samples: int = 100):
     for k, v in results.items():
         print(f"  {k:<40} {v:.4f}" if isinstance(v, float) else f"  {k:<40} {v}")
 
-    with open(config.EVAL_OUTPUT_FILE, "w") as f:
+    with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"\n[eval] Results saved to {config.EVAL_OUTPUT_FILE}")
+    print(f"\n[eval] Results saved to {output_file}")
 
     return results
 
 
 if __name__ == "__main__":
-    evaluate(num_samples=100)
+    adapter_dir, output_file = get_paths()
+    evaluate(adapter_dir, output_file, num_samples=100)
