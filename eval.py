@@ -1,9 +1,12 @@
 """
 eval.py — Evaluate the fine-tuned Qwen2.5 medical model.
 
-Now asks for adapter directory and output file at runtime.
+Usage:
+    python eval.py --adapter_dir PATH --output_file PATH [--num_samples N]
+    python eval.py --adapter_dir /path/to/adapter --output_file results.json --num_samples 100
 """
 
+import argparse
 import json
 import torch
 from tqdm import tqdm
@@ -20,7 +23,6 @@ from load_dataset import load_raw_df, df_to_dataset_dict
 
 
 # ── BERTScore overflow patch ───────────────────────────────────────────────────
-# (unchanged, kept exactly as before)
 import transformers as _transformers
 
 _original_from_pretrained = _transformers.AutoTokenizer.from_pretrained.__func__
@@ -40,21 +42,17 @@ _transformers.AutoTokenizer.from_pretrained = _patched_from_pretrained
 from bert_score import score as bertscore  # noqa: E402
 
 
-# ── Interactive input for paths ────────────────────────────────────────────────
+# ── Argument parsing ───────────────────────────────────────────────────────────
 
-def get_paths():
-    print("\n--- Evaluation Paths ---")
-    default_adapter = config.ADAPTER_DIR
-    adapter = input(f"Adapter directory [default: {default_adapter}]: ").strip()
-    if not adapter:
-        adapter = default_adapter
-
-    default_output = config.EVAL_OUTPUT_FILE
-    output_file = input(f"Output JSON file [default: {default_output}]: ").strip()
-    if not output_file:
-        output_file = default_output
-
-    return adapter, output_file
+def parse_args():
+    parser = argparse.ArgumentParser(description="Evaluate fine-tuned Qwen2.5 medical model")
+    parser.add_argument("--adapter_dir", type=str, required=True,
+                        help="Path to the adapter directory (e.g., ./qwen-medical-adapter-dora)")
+    parser.add_argument("--output_file", type=str, required=True,
+                        help="Path where evaluation results (JSON) will be saved")
+    parser.add_argument("--num_samples", type=int, default=100,
+                        help="Number of test samples to evaluate (default: 100)")
+    return parser.parse_args()
 
 
 # ── Model loading ──────────────────────────────────────────────────────────────
@@ -136,7 +134,7 @@ def compute_rouge(predictions: list[str], references: list[str]) -> dict:
 
 # ── Main evaluation loop ───────────────────────────────────────────────────────
 
-def evaluate(adapter_dir, output_file, num_samples: int = 100):
+def evaluate(adapter_dir, output_file, num_samples: int):
     print(f"[eval] Loading model from {adapter_dir}…")
     model, tokenizer = load_eval_model(adapter_dir)
 
@@ -201,5 +199,5 @@ def evaluate(adapter_dir, output_file, num_samples: int = 100):
 
 
 if __name__ == "__main__":
-    adapter_dir, output_file = get_paths()
-    evaluate(adapter_dir, output_file, num_samples=100)
+    args = parse_args()
+    evaluate(args.adapter_dir, args.output_file, args.num_samples)

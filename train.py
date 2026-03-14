@@ -1,9 +1,17 @@
 """
 train.py — Fine-tune Qwen2.5-1.5B-Instruct using either QLoRA or DoRA.
 
-Run this script and it will ask you which method to use.
+Usage:
+    python train.py --method {qlora,dora}
+    python train.py --method qlora
+    python train.py --method dora
+
+Optional overrides:
+    --output_dir PATH    (overrides config.OUTPUT_DIR)
+    --adapter_dir PATH   (overrides config.ADAPTER_DIR; final -qlora/-dora suffix added)
 """
 
+import argparse
 import torch
 from transformers import (
     AutoModelForCausalLM,
@@ -15,6 +23,18 @@ from trl import SFTTrainer
 from peft import LoraConfig, get_peft_model
 import config
 from load_dataset import get_processed_dataset
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Fine-tune Qwen2.5 with QLoRA or DoRA")
+    parser.add_argument("--method", type=str, required=True,
+                        choices=["qlora", "dora"],
+                        help="Fine-tuning method: qlora or dora")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Override config.OUTPUT_DIR")
+    parser.add_argument("--adapter_dir", type=str, default=None,
+                        help="Override config.ADAPTER_DIR (suffix -qlora/-dora will be added)")
+    return parser.parse_args()
 
 
 def load_model_and_tokenizer():
@@ -32,7 +52,7 @@ def load_model_and_tokenizer():
         device_map="auto",
         trust_remote_code=True,
     )
-    model.config.use_cache = False  # required for gradient checkpointing
+    model.config.use_cache = False
 
     tokenizer = AutoTokenizer.from_pretrained(model_ref)
     if tokenizer.pad_token is None:
@@ -41,9 +61,9 @@ def load_model_and_tokenizer():
     return model, tokenizer
 
 
-def build_training_args() -> TrainingArguments:
+def build_training_args(output_dir: str) -> TrainingArguments:
     return TrainingArguments(
-        output_dir=config.OUTPUT_DIR,
+        output_dir=output_dir,
         per_device_train_batch_size=config.TRAIN_BATCH_SIZE,
         gradient_accumulation_steps=config.GRADIENT_ACCUMULATION_STEPS,
         learning_rate=config.LEARNING_RATE,
@@ -55,14 +75,14 @@ def build_training_args() -> TrainingArguments:
         logging_steps=config.LOGGING_STEPS,
         neftune_noise_alpha=config.NEFTUNE_NOISE_ALPHA,
         gradient_checkpointing=config.GRADIENT_CHECKPOINTING,
-        save_strategy="no",                 # no intermediate checkpoints
+        save_strategy="no",
         warmup_steps=config.WARMUP_STEPS,
         save_total_limit=2,
         load_best_model_at_end=False,
     )
 
 
-def train_qlora(model, tokenizer, train_dataset):
+def train_qlora(model, tokenizer, train_dataset, output_dir, adapter_base):
     print("[train] Using QLoRA...")
     peft_config = LoraConfig(
         r=config.LORA_R,
@@ -74,19 +94,19 @@ def train_qlora(model, tokenizer, train_dataset):
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
-        args=build_training_args(),
+        args=build_training_args(output_dir),
         train_dataset=train_dataset,
         peft_config=peft_config,
         formatting_func=lambda x: x["text"],
     )
     trainer.train()
-    save_dir = config.ADAPTER_DIR.rstrip("/") + "-qlora"
+    save_dir = adapter_base.rstrip("/") + "-qlora"
     print(f"[train] Saving QLoRA adapter to {save_dir}")
     trainer.model.save_pretrained(save_dir)
     tokenizer.save_pretrained(save_dir)
 
 
-def train_dora(model, tokenizer, train_dataset):
+def train_dora(model, tokenizer, train_dataset, output_dir, adapter_base):
     print("[train] Using DoRA...")
     dora_config = LoraConfig(
         r=config.LORA_R,
@@ -102,26 +122,23 @@ def train_dora(model, tokenizer, train_dataset):
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
-        args=build_training_args(),
+        args=build_training_args(output_dir),
         train_dataset=train_dataset,
         formatting_func=lambda x: x["text"],
     )
     trainer.train()
-    save_dir = config.ADAPTER_DIR.rstrip("/") + "-dora"
+    save_dir = adapter_base.rstrip("/") + "-dora"
     print(f"[train] Saving DoRA adapter to {save_dir}")
     trainer.model.save_pretrained(save_dir)
     tokenizer.save_pretrained(save_dir)
 
 
 def main():
-    print("Choose fine-tuning method:")
-    print("1. QLoRA")
-    print("2. DoRA")
-    choice = input("Enter 1 or 2: ").strip()
+    args = parse_args()
 
-    if choice not in ("1", "2"):
-        print("Invalid choice. Exiting.")
-        return
+    # Use command-line overrides or fall back to config
+    output_dir = args.output_dir if args.output_dir else config.OUTPUT_DIR
+    adapter_base = args.adapter_dir if args.adapter_dir else config.ADAPTER_DIR
 
     print("[train] Loading model and tokenizer (4-bit)...")
     model, tokenizer = load_model_and_tokenizer()
@@ -130,10 +147,10 @@ def main():
     dataset = get_processed_dataset(tokenizer)
     train_dataset = dataset[config.DATASET_SPLIT]
 
-    if choice == "1":
-        train_qlora(model, tokenizer, train_dataset)
+    if args.method == "qlora":
+        train_qlora(model, tokenizer, train_dataset, output_dir, adapter_base)
     else:
-        train_dora(model, tokenizer, train_dataset)
+        train_dora(model, tokenizer, train_dataset, output_dir, adapter_base)
 
     print("[train] Done.")
 
