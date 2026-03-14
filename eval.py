@@ -179,7 +179,7 @@ def evaluate(adapter_dir, output_file, num_samples: int):
         "num_samples": len(questions),
     }
 
-    print("\n[eval] ── Results ──────────────────────────────────────")
+    print("\n[eval] Results")
     for k, v in results.items():
         print(f"  {k:<40} {v:.4f}" if isinstance(v, float) else f"  {k:<40} {v}")
 
