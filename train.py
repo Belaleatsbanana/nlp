@@ -1,16 +1,3 @@
-"""
-train.py — Fine-tune Qwen2.5-1.5B-Instruct using either QLoRA or DoRA.
-
-Usage:
-    python train.py --method {qlora,dora}
-    python train.py --method qlora
-    python train.py --method dora
-
-Optional overrides:
-    --output_dir PATH    (overrides config.OUTPUT_DIR)
-    --adapter_dir PATH   (overrides config.ADAPTER_DIR; final -qlora/-dora suffix added)
-"""
-
 import argparse
 import torch
 from transformers import (

@@ -1,12 +1,3 @@
-"""
-infer.py — Run inference with the fine-tuned Qwen2.5 medical model.
-
-Supports:
-  - Single question (interactive CLI)
-  - Batch question list
-  - Streaming output via TextStreamer
-"""
-
 import torch
 from transformers import (
     AutoModelForCausalLM,
@@ -20,13 +11,6 @@ import config
 
 
 def load_model(use_adapter: bool = True):
-    """
-    Load the quantised Qwen2.5 model.
-
-    Args:
-        use_adapter: If True, load fine-tuned LoRA adapter (post-training).
-                     If False, load the base model only (pre-fine-tune baseline).
-    """
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=config.BNB_LOAD_IN_4BIT,
         bnb_4bit_quant_type=config.BNB_4BIT_QUANT_TYPE,
@@ -67,7 +51,6 @@ def build_prompt(question: str, tokenizer: AutoTokenizer) -> str:
 
 
 def infer_stream(model, tokenizer, question: str) -> None:
-    """Stream the model response to stdout."""
     text = build_prompt(question, tokenizer)
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
@@ -78,7 +61,6 @@ def infer_stream(model, tokenizer, question: str) -> None:
         model.generate(
             **inputs,
             max_new_tokens=config.MAX_NEW_TOKENS,
-            # Precision Tweak: temperature=0.3 for stricter factual adherence
             temperature=config.TEMPERATURE,
             top_p=config.TOP_P,
             top_k=config.TOP_K,
@@ -90,7 +72,6 @@ def infer_stream(model, tokenizer, question: str) -> None:
 
 
 def infer_batch(model, tokenizer, questions: list[str]) -> list[str]:
-    """Generate answers for a list of questions without streaming."""
     answers = []
     for q in questions:
         text = build_prompt(q, tokenizer)
@@ -116,7 +97,6 @@ def infer_batch(model, tokenizer, questions: list[str]) -> list[str]:
 
 
 def interactive_cli(model, tokenizer):
-    """Simple REPL for manual testing."""
     print("\nQwen2.5 Medical Assistant (type 'exit' to quit)\n")
     while True:
         try:

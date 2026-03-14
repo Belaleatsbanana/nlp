@@ -1,13 +1,3 @@
-"""
-load_dataset.py — Download MedQuAD directly from Kaggle via kagglehub,
-load into a pandas DataFrame (no read_csv), then convert to a HuggingFace
-DatasetDict and apply Qwen2.5's chat template.
-
-Requirements: kagglehub  (pip install kagglehub)
-Credentials : set KAGGLE_USERNAME and KAGGLE_KEY env vars, or place
-              ~/.kaggle/kaggle.json  ({"username": "...", "key": "..."})
-"""
-
 import csv
 import os
 import kagglehub
@@ -17,9 +7,6 @@ from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer
 import config
 
-
-
-# Tokenizer
 def get_tokenizer() -> AutoTokenizer:
     model_ref = config.MODEL_PATH or config.MODEL_ID
     tokenizer = AutoTokenizer.from_pretrained(model_ref)
@@ -27,20 +14,10 @@ def get_tokenizer() -> AutoTokenizer:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
 
-
-# Kaggle unto pandas DataFrame
 def load_raw_df() -> pd.DataFrame:
-    """
-    Download MedQuAD from Kaggle via kagglehub and load it directly into a
-    pandas DataFrame
-
-    Returns columns: question, answer, source, focus_area
-    """
 
     kaggle_dataset_handle = config.KAGGLE_DATASET_HANDLE
     kaggle_csv_filename   = config.KAGGLE_CSV_FILENAME
-    
-
 
     df = kagglehub.dataset_load(
         KaggleDatasetAdapter.PANDAS,
@@ -48,7 +25,6 @@ def load_raw_df() -> pd.DataFrame:
         kaggle_csv_filename,
     )
 
-    # Rename 34an kaggle by3abat
     original_cols = list(df.columns)
     rename_map = {
         original_cols[0]: config.DATASET_QUESTION_COL,
@@ -58,7 +34,6 @@ def load_raw_df() -> pd.DataFrame:
     }
     df = df.rename(columns=rename_map)
 
-    # Force question and answer to str, drop any rows where they are null/empty
     for col in [config.DATASET_QUESTION_COL, config.DATASET_ANSWER_COL]:
         df[col] = df[col].fillna("").astype(str).str.strip()
 
@@ -78,8 +53,6 @@ def load_raw_df() -> pd.DataFrame:
 
     return df
 
-
-# pandas to HuggingFace DatasetDict
 def df_to_dataset_dict(df: pd.DataFrame) -> DatasetDict:
     """Split the DataFrame 90/10 and wrap as a HuggingFace DatasetDict."""
     hf_ds = Dataset.from_pandas(df, preserve_index=False)
@@ -88,9 +61,6 @@ def df_to_dataset_dict(df: pd.DataFrame) -> DatasetDict:
         config.DATASET_SPLIT:      split["train"],
         config.DATASET_TEST_SPLIT: split["test"],
     })
-
-
-# Chat template formatting
 
 def format_data(examples, tokenizer: AutoTokenizer) -> dict:
     return {
@@ -101,7 +71,7 @@ def format_data(examples, tokenizer: AutoTokenizer) -> dict:
                     {"role": "assistant", "content": str(a)},
                 ],
                 tokenize=False,
-                enable_thinking=False,  # Qwen2.5 does not use thinking tokens
+                enable_thinking=False,
             )
             for q, a in zip(
                 examples[config.DATASET_QUESTION_COL],
@@ -110,14 +80,7 @@ def format_data(examples, tokenizer: AutoTokenizer) -> dict:
         ]
     }
 
-
-# entry point
-
 def get_processed_dataset(tokenizer: AutoTokenizer = None) -> DatasetDict:
-    """
-    Full pipeline:
-      Kaggle API -> pandas DataFrame -> HuggingFace DatasetDict -> chat-formatted 'text' column
-    """
     if tokenizer is None:
         tokenizer = get_tokenizer()
 

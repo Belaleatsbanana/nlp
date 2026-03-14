@@ -1,11 +1,3 @@
-"""
-eval.py — Evaluate the fine-tuned Qwen2.5 medical model.
-
-Usage:
-    python eval.py --adapter_dir PATH --output_file PATH [--num_samples N]
-    python eval.py --adapter_dir /path/to/adapter --output_file results.json --num_samples 100
-"""
-
 import argparse
 import json
 import torch
@@ -22,7 +14,7 @@ import config
 from load_dataset import load_raw_df, df_to_dataset_dict
 
 
-# ── BERTScore overflow patch ───────────────────────────────────────────────────
+# BERTScore overflow patch
 import transformers as _transformers
 
 _original_from_pretrained = _transformers.AutoTokenizer.from_pretrained.__func__
@@ -39,10 +31,10 @@ def _patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs
 
 _transformers.AutoTokenizer.from_pretrained = _patched_from_pretrained
 
-from bert_score import score as bertscore  # noqa: E402
+from bert_score import score as bertscore
 
 
-# ── Argument parsing ───────────────────────────────────────────────────────────
+# Argument parsing
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate fine-tuned Qwen2.5 medical model")
@@ -55,7 +47,7 @@ def parse_args():
     return parser.parse_args()
 
 
-# ── Model loading ──────────────────────────────────────────────────────────────
+# Model loading
 
 def load_eval_model(adapter_dir):
     bnb_config = BitsAndBytesConfig(
@@ -81,7 +73,7 @@ def load_eval_model(adapter_dir):
     return model, tokenizer
 
 
-# ── Generation ─────────────────────────────────────────────────────────────────
+# Generation
 
 def generate_answer(model, tokenizer, question: str) -> str:
     messages = [{"role": "user", "content": question}]
@@ -107,7 +99,7 @@ def generate_answer(model, tokenizer, question: str) -> str:
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
-# ── Medical accuracy heuristic ─────────────────────────────────────────────────
+# Medical accuracy heuristic
 
 def medical_accuracy_score(prediction: str, reference: str) -> float:
     ref_lower  = reference.lower()
@@ -123,7 +115,7 @@ def medical_accuracy_score(prediction: str, reference: str) -> float:
     return matched / len(relevant_keywords)
 
 
-# ── ROUGE-L ────────────────────────────────────────────────────────────────────
+# ROUGE-L
 
 def compute_rouge(predictions: list[str], references: list[str]) -> dict:
     scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
@@ -132,7 +124,7 @@ def compute_rouge(predictions: list[str], references: list[str]) -> dict:
     return {"rougeL_mean": sum(scores) / len(scores) if scores else 0.0}
 
 
-# ── Main evaluation loop ───────────────────────────────────────────────────────
+# Main evaluation loop
 
 def evaluate(adapter_dir, output_file, num_samples: int):
     print(f"[eval] Loading model from {adapter_dir}…")
@@ -157,7 +149,7 @@ def evaluate(adapter_dir, output_file, num_samples: int):
         predictions.append(pred)
         med_acc_scores.append(medical_accuracy_score(pred, ref))
 
-    # ── BERTScore ──────────────────────────────────────────────────────────────
+    # BERTScore
     print("[eval] Computing BERTScore…")
     P, R, F1 = bertscore(
         predictions,
@@ -173,11 +165,11 @@ def evaluate(adapter_dir, output_file, num_samples: int):
         "bertscore_f1":        F1.mean().item(),
     }
 
-    # ── ROUGE-L ────────────────────────────────────────────────────────────────
+    # ROUGE-L
     print("[eval] Computing ROUGE-L…")
     rouge_results = compute_rouge(predictions, references)
 
-    # ── Medical accuracy ───────────────────────────────────────────────────────
+    # Medical accuracy
     med_acc_mean = sum(med_acc_scores) / len(med_acc_scores)
 
     results = {
