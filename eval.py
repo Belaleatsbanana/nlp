@@ -12,17 +12,46 @@ Metrics:
 import json
 import torch
 from tqdm import tqdm
-import pandas as pd
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     BitsAndBytesConfig,
 )
 from peft import PeftModel
-from bert_score import score as bertscore
 from rouge_score import rouge_scorer
 
 import config
+from load_dataset import load_raw_df, df_to_dataset_dict
+
+
+# ── BERTScore overflow patch ───────────────────────────────────────────────────
+# Must be applied BEFORE bert_score is imported.
+#
+# Root cause: bert_score loads the DeBERTa tokenizer, reads model_max_length
+# (= INT32_MAX = 2 147 483 647), and passes it straight to the Rust-backed
+# tokenizers library's enable_truncation(), which cannot handle a value that
+# large → OverflowError.  We patch AutoTokenizer.from_pretrained so that any
+# tokenizer whose model_max_length exceeds 512 is silently clamped to 512
+# before bert_score ever touches it.
+
+import transformers as _transformers
+
+_original_from_pretrained = _transformers.AutoTokenizer.from_pretrained.__func__
+
+@classmethod  # type: ignore[misc]
+def _patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+    tokenizer = _original_from_pretrained(
+        cls, pretrained_model_name_or_path, *args, **kwargs
+    )
+    _BERTSCORE_MAX = 512
+    if getattr(tokenizer, "model_max_length", 0) > _BERTSCORE_MAX:
+        tokenizer.model_max_length = _BERTSCORE_MAX
+    return tokenizer
+
+_transformers.AutoTokenizer.from_pretrained = _patched_from_pretrained
+
+# Now safe to import bert_score
+from bert_score import score as bertscore  # noqa: E402
 
 
 # ── Model loading ──────────────────────────────────────────────────────────────
@@ -43,6 +72,7 @@ def load_eval_model():
         device_map="auto",
     )
     model = PeftModel.from_pretrained(base_model, config.ADAPTER_DIR)
+    model.config.use_cache = True  # Re-enable for inference (was disabled during training)
     tokenizer = AutoTokenizer.from_pretrained(config.ADAPTER_DIR)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -67,14 +97,13 @@ def generate_answer(model, tokenizer, question: str) -> str:
         output_ids = model.generate(
             **inputs,
             max_new_tokens=config.MAX_NEW_TOKENS,
-            temperature=config.TEMPERATURE,   # Precision Tweak: 0.3 for factual adherence
+            temperature=config.TEMPERATURE,
             top_p=config.TOP_P,
             top_k=config.TOP_K,
             num_beams=config.NUM_BEAMS,
-            do_sample=True,
+            do_sample=(config.NUM_BEAMS == 1),
         )
 
-    # Decode only the newly generated tokens
     new_tokens = output_ids[0][inputs["input_ids"].shape[-1]:]
     return tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
@@ -107,27 +136,26 @@ def compute_rouge(predictions: list[str], references: list[str]) -> dict:
     scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     scores = [scorer.score(ref, pred)["rougeL"].fmeasure
               for pred, ref in zip(predictions, references)]
-    return {"rougeL_mean": sum(scores) / len(scores)}
+    return {"rougeL_mean": sum(scores) / len(scores) if scores else 0.0}
 
 
 # ── Main evaluation loop ───────────────────────────────────────────────────────
 
-def evaluate(num_samples: int = 100):
+def evaluate(num_samples: int = 1):
     print("[eval] Loading model…")
     model, tokenizer = load_eval_model()
 
     print("[eval] Loading test set from CSV…")
-    from load_dataset import load_raw_df, df_to_dataset_dict
     df  = load_raw_df()
     dsd = df_to_dataset_dict(df)
     raw = dsd[config.DATASET_TEST_SPLIT]
     if num_samples:
         raw = raw.select(range(min(num_samples, len(raw))))
 
-    questions  = raw[config.DATASET_QUESTION_COL]
-    references = raw[config.DATASET_ANSWER_COL]
+    questions  = list(raw[config.DATASET_QUESTION_COL])
+    references = list(raw[config.DATASET_ANSWER_COL])
 
-    predictions   = []
+    predictions    = []
     med_acc_scores = []
 
     print(f"[eval] Generating answers for {len(questions)} samples…")

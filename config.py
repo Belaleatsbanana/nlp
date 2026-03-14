@@ -14,8 +14,8 @@ import torch
 MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"   # HuggingFace hub ID (fallback)
 MODEL_PATH = None                      # Set to local path or Kaggle download path;
                                        # if None, MODEL_ID is used.
-OUTPUT_DIR = "./qwen-medical"
-ADAPTER_DIR = "./qwen-medical-adapter" # Where the LoRA weights are saved after training
+OUTPUT_DIR = "/kaggle/working/qwen-medical-dora"
+ADAPTER_DIR = "/kaggle/input/datasets/youssef104/nlp-project/qwen-medical-adapter-dora"  # Where the LoRA weights are saved after training
 
 # ── Dataset ────────────────────────────────────────────────────────────────────
 # MedQuAD downloaded directly from Kaggle via kagglehub → pandas DataFrame.
@@ -77,7 +77,7 @@ ENABLE_THINKING = False  # Qwen2.5 does not support chain-of-thought thinking to
 # ── Evaluation ─────────────────────────────────────────────────────────────────
 EVAL_BATCH_SIZE       = 8
 BERTSCORE_MODEL_TYPE  = "microsoft/deberta-xlarge-mnli"  # Best BERTScore backbone
-EVAL_OUTPUT_FILE      = "eval_results.json"
+EVAL_OUTPUT_FILE = "/kaggle/working/eval_results.json"
 # Keywords drawn from UpToDate® clinical guidance areas used for keyword-match
 # medical accuracy heuristics (extend as needed).
 CLINICAL_GUIDELINE_KEYWORDS = [
