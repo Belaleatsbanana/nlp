@@ -1,0 +1,8 @@
+{
+  "bertscore_precision": 0.6966807842254639,
+  "bertscore_recall": 0.693759024143219,
+  "bertscore_f1": 0.6932430267333984,
+  "rougeL_mean": 0.3264225747504072,
+  "medical_accuracy_keyword_mean": 0.7133333333333333,
+  "num_samples": 100
+}
